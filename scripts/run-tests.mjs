@@ -25,6 +25,9 @@ function collectLibDirs(dir, acc) {
 
 const localLibDirs = [...collectLibDirs(join(projectRoot, ".syslib", "root"), new Set())];
 const env = { ...process.env };
+// 测试需要 /api/test/reset 等入口，默认以非生产模式运行；
+// “生产环境关闭测试入口”由 tests/05-fixes.spec.ts 自行拉起 NODE_ENV=production 实例验证。
+if (!env.NODE_ENV || env.NODE_ENV === "test") env.NODE_ENV = "development";
 if (localLibDirs.length) {
   env.LD_LIBRARY_PATH = [...localLibDirs, env.LD_LIBRARY_PATH].filter(Boolean).join(":");
 }

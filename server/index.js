@@ -118,25 +118,35 @@ app.get('/api/config', handle(() => ({
   refundReviewThresholdCents: REFUND_REVIEW_THRESHOLD_CENTS,
 })));
 
-// ---- 故障注入（仅演示/测试用）----
-app.post('/api/test/fault', handle((req) => {
-  faultInjection.failNextCreate = !!req.body.failNextCreate;
-  faultInjection.failNextDispose = !!req.body.failNextDispose;
-  return { failNextCreate: faultInjection.failNextCreate, failNextDispose: faultInjection.failNextDispose };
-}));
+// ---- 测试专用入口（故障注入 / 数据重置）----
+// 仅在非生产环境注册；NODE_ENV=production（npm start）下这些路由根本不存在，
+// 因此无法在无认证情况下清空数据或注入故障。
+const TEST_ROUTES_ENABLED = process.env.NODE_ENV !== 'production';
+if (TEST_ROUTES_ENABLED) {
+  // 故障注入（仅演示/测试用）
+  app.post('/api/test/fault', handle((req) => {
+    faultInjection.failNextCreate = !!req.body.failNextCreate;
+    faultInjection.failNextDispose = !!req.body.failNextDispose;
+    return { failNextCreate: faultInjection.failNextCreate, failNextDispose: faultInjection.failNextDispose };
+  }));
 
-// 测试辅助：重置数据库（删除文件由外部脚本完成；这里仅清空业务表并重新种子）
-app.post('/api/test/reset', handle((req) => {
-  db.transaction(() => {
-    for (const t of [
-      'audits', 'refunds', 'dispositions', 'scans', 'return_items',
-      'return_orders', 'idempotency', 'order_items', 'orders', 'products',
-    ]) db.prepare(`DELETE FROM ${t}`).run();
-    faultInjection.reset();
-  })();
-  seed();
-  return { reset: true };
-}));
+  // 测试辅助：重置数据库（清空业务表并重新种子）
+  app.post('/api/test/reset', handle(() => {
+    db.transaction(() => {
+      for (const t of [
+        'audits', 'refunds', 'dispositions', 'scans', 'return_items',
+        'return_orders', 'idempotency', 'order_items', 'orders', 'products',
+      ]) db.prepare(`DELETE FROM ${t}`).run();
+      faultInjection.reset();
+    })();
+    seed();
+    return { reset: true };
+  }));
+} else {
+  // 生产环境下显式拒绝，返回 404，避免泄露这些能力的存在
+  app.post(['/api/test/fault', '/api/test/reset'], (_req, res) =>
+    res.status(404).json({ ok: false, error: { code: 'NOT_FOUND', message: 'Not Found' } }));
+}
 
 // ---- 生产静态资源 ----
 const distDir = join(__dirname, '..', 'dist');

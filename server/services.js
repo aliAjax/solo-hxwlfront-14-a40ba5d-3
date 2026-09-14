@@ -193,8 +193,9 @@ export function signReturn({ id, actor, role }) {
 }
 
 /* ------------------------------------------------------------------ *
- * 扫码（签收后可随时扫，归在 signed 阶段累积实收）
- * 重复扫码只记一次。
+ * 扫码（仅「已签收、未质检」阶段可扫，用于累积实收）
+ *  - 重复扫码只记一次（幂等忽略，不增加实收）
+ *  - 每个商品的实收数量不得超过其申请退货数量
  * ------------------------------------------------------------------ */
 export function scanItem({ id, actor, role, productId, scanCode }) {
   if (role !== ROLES.warehouse) {
@@ -204,11 +205,11 @@ export function scanItem({ id, actor, role, productId, scanCode }) {
   }
   const ro = db.prepare('SELECT * FROM return_orders WHERE id=?').get(id);
   if (!ro) throw new BizError(404, 'NOT_FOUND', '退货单不存在');
-  if (ro.status !== 'signed' && ro.status !== 'inspected') {
-    // 扫码只允许在签收之后、质检完成前后的实收阶段；预约/处置后不允许
-    throw new BizError(409, 'INVALID_STEP', '当前状态不允许扫码（需先签收）', {
-      actor, action: 'scan', detail: { reason: 'step', current: ro.status },
-    });
+  if (ro.status !== 'signed') {
+    // 扫码只允许在签收之后、质检之前；预约/质检后/处置后一律拒绝
+    throw new BizError(409, 'INVALID_STEP',
+      ro.status === 'booked' ? '尚未签收，不能扫码' : '质检已完成，不能再扫码（数量以质检分摊为准）',
+      { actor, action: 'scan', detail: { reason: 'step', current: ro.status } });
   }
   const code = String(scanCode || '').trim();
   if (!code) throw new BizError(400, 'VALIDATION', '扫码序列号不能为空');
@@ -230,6 +231,16 @@ export function scanItem({ id, actor, role, productId, scanCode }) {
         return; // 重复扫码：幂等忽略，只记一次
       }
       throw e;
+    }
+    // 新序列号：实收 +1 后不得超过申请量；超出则连同本次扫码一起回滚
+    const fresh = db.prepare('SELECT qty, received_qty FROM return_items WHERE id=?').get(item.id);
+    if (fresh.received_qty + 1 > fresh.qty) {
+      throw new BizError(
+        409,
+        'SCAN_EXCEEDS_REQUESTED',
+        `实收数量 ${fresh.received_qty + 1} 超过申请退货量 ${fresh.qty}，该扫码被拒绝`,
+        { actor, action: 'scan', detail: { productId, requested: fresh.qty, received: fresh.received_qty } }
+      );
     }
     db.prepare('UPDATE return_items SET received_qty = received_qty + 1 WHERE id=?').run(item.id);
     auditSuccess( id, actor, 'scan', { productId, scanCode: code });

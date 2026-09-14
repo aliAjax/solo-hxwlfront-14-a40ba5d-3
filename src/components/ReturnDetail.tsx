@@ -165,8 +165,8 @@ export default function ReturnDetail({ detail, role, threshold, reload }: Props)
         ]}
       />
 
-      {/* 扫码区：仅签收后可用 */}
-      {(status === "signed" || status === "inspected") && (
+      {/* 扫码区：仅签收后、质检前可用 */}
+      {status === "signed" && (
         <Card size="small" type="inner" title="包裹扫码（重复扫码只记一次）" style={{ marginBottom: 16 }}>
           <Space wrap>
             <Select
