@@ -16,3 +16,14 @@ pnpm-debug.log*
 *.tsbuildinfo
 .idea/
 .vscode/
+# 运行时数据
+server/*.db
+server/*.db-wal
+server/*.db-shm
+# 测试产物
+test-results/
+playwright-report/
+/blob-report/
+playwright/.cache/
+# 本地解包的 Chromium 系统库（非 root 环境用，可用 scripts/setup-syslib.sh 重建）
+.syslib/
